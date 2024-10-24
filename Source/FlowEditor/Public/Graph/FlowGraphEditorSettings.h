@@ -8,8 +8,9 @@
 UENUM()
 enum class EFlowNodeDoubleClickTarget : uint8
 {
-	NodeDefinition UMETA(Tooltip = "Open node class: either blueprint or C++ class"),
-	PrimaryAsset   UMETA(Tooltip = "Open asset defined as primary asset, i.e. Dialogue asset for PlayDialogue node")
+	NodeDefinition               UMETA(Tooltip = "Open node class: either blueprint or C++ class"),
+	PrimaryAsset                 UMETA(Tooltip = "Open asset defined as primary asset, i.e. Dialogue asset for PlayDialogue node"),
+	PrimaryAssetOrNodeDefinition UMETA(Tooltip = "First try opening the asset then if there is none, open the node class") 
 };
 
 /**
@@ -22,6 +23,10 @@ class FLOWEDITOR_API UFlowGraphEditorSettings : public UDeveloperSettings
 
 	static UFlowGraphEditorSettings* Get() { return StaticClass()->GetDefaultObject<UFlowGraphEditorSettings>(); }
 
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+	
 	// Double-clicking a Flow Node might open relevant asset/code editor
 	UPROPERTY(config, EditAnywhere, Category = "Nodes")
 	EFlowNodeDoubleClickTarget NodeDoubleClickTarget;
@@ -47,6 +52,11 @@ class FLOWEDITOR_API UFlowGraphEditorSettings : public UDeveloperSettings
 	
 	UPROPERTY(config, EditAnywhere, Category = "Nodes", meta = (EditCondition = "bShowSubGraphPreview"))
 	FVector2D SubGraphPreviewSize;
+
+	/** Enable hot reload for native flow nodes?
+	 * WARNING: hot reload can easily crash the editor and you can lose progress */
+	UPROPERTY(EditAnywhere, Config, Category = "Nodes", AdvancedDisplay)
+	bool bHotReloadNativeNodes;
 
 	UPROPERTY(EditAnywhere, config, Category = "Wires")
 	bool bHighlightInputWiresOfSelectedNodes;

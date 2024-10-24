@@ -2,14 +2,18 @@
 
 #pragma once
 
-#include "FlowMessageLog.h"
 #include "FlowSave.h"
 #include "FlowTypes.h"
 #include "Nodes/FlowNode.h"
 
+#if WITH_EDITOR
+#include "FlowMessageLog.h"
+#endif
+
 #include "UObject/ObjectKey.h"
 #include "FlowAsset.generated.h"
 
+class UFlowNode_CustomOutput;
 class UFlowNode_CustomInput;
 class UFlowNode_SubGraph;
 class UFlowSubsystem;
@@ -42,6 +46,8 @@ UCLASS(BlueprintType, hideCategories = Object)
 class FLOW_API UFlowAsset : public UObject
 {
 	GENERATED_UCLASS_BODY()
+
+public:	
 	friend class UFlowNode;
 	friend class UFlowNode_CustomOutput;
 	friend class UFlowNode_SubGraph;
@@ -55,7 +61,7 @@ class FLOW_API UFlowAsset : public UObject
 	FGuid AssetGuid;
 
 	// Set it to False, if this asset is instantiated as Root Flow for owner that doesn't live in the world
-	// This allow to SaveGame support works properly, if owner of Root Flow would be Game Instance or its subsystem
+	// This allows to SaveGame support works properly, if owner of Root Flow would be Game Instance or its subsystem
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Flow Asset")
 	bool bWorldBound;
 
@@ -63,20 +69,31 @@ class FLOW_API UFlowAsset : public UObject
 // Graph
 
 #if WITH_EDITOR
+public:	
 	friend class UFlowGraph;
 
 	// UObject
 	static void AddReferencedObjects(UObject* InThis, FReferenceCollector& Collector);
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 	virtual void PostDuplicate(bool bDuplicateForPIE) override;
+	virtual void PostLoad() override;
 	// --
+
+public:
+	FSimpleDelegate OnDetailsRefreshRequested;
+
+	static FString ValidationError_NodeClassNotAllowed;
+	static FString ValidationError_NullNodeInstance;
 
 	virtual EDataValidationResult ValidateAsset(FFlowMessageLog& MessageLog);
 
 	// Returns whether the node class is allowed in this flow asset
-	bool IsNodeClassAllowed(const UClass* FlowNodeClass) const;
+	bool IsNodeOrAddOnClassAllowed(const UClass* FlowNodeClass, FText* OutOptionalFailureReason = nullptr) const;
 
-	static FString ValidationError_NodeClassNotAllowed;
+protected:
+	bool CanFlowNodeClassBeUsedByFlowAsset(const UClass& FlowNodeClass) const;
+	bool CanFlowAssetUseFlowNodeClass(const UClass& FlowNodeClass) const;
+	bool CanFlowAssetReferenceFlowNode(const UClass& FlowNodeClass, FText* OutOptionalFailureReason = nullptr) const;
 #endif
 
 	// IFlowGraphInterface
@@ -84,7 +101,7 @@ class FLOW_API UFlowAsset : public UObject
 
 private:
 	UPROPERTY()
-	UEdGraph* FlowGraph;
+	TObjectPtr<UEdGraph> FlowGraph;
 
 	static TSharedPtr<IFlowGraphInterface> FlowGraphInterface;
 #endif
@@ -114,6 +131,8 @@ private:
 	UPROPERTY()
 	TMap<FGuid, UFlowNode*> Nodes;
 
+#if WITH_EDITORONLY_DATA
+protected:
 	/**
 	 * Custom Inputs define custom entry points in graph, it's similar to blueprint Custom Events
 	 * Sub Graph node using this Flow Asset will generate context Input Pin for every valid Event name on this list
@@ -127,6 +146,7 @@ private:
 	 */
 	UPROPERTY(EditAnywhere, Category = "Sub Graph")
 	TArray<FName> CustomOutputs;
+#endif // WITH_EDITORONLY_DATA
 
 public:
 #if WITH_EDITOR
@@ -157,22 +177,8 @@ public:
 		return nullptr;
 	}
 
+	UFUNCTION(BlueprintPure, Category = "FlowAsset")
 	virtual UFlowNode* GetDefaultEntryNode() const;
-
-#if WITH_EDITOR
-protected:
-	void AddCustomInput(const FName& EventName);
-	void RemoveCustomInput(const FName& EventName);
-
-	void AddCustomOutput(const FName& EventName);
-	void RemoveCustomOutput(const FName& EventName);
-#endif
-
-public:
-	const TArray<FName>& GetCustomInputs() const { return CustomInputs; }
-	const TArray<FName>& GetCustomOutputs() const { return CustomOutputs; }
-
-	UFlowNode_CustomInput* TryFindCustomInputNodeByEventName(const FName& EventName) const;
 
 	UFUNCTION(BlueprintPure, Category = "FlowAsset", meta = (DeterminesOutputType = "FlowNodeClass"))
 	TArray<UFlowNode*> GetNodesInExecutionOrder(UFlowNode* FirstIteratedNode, const TSubclassOf<UFlowNode> FlowNodeClass);
@@ -209,6 +215,25 @@ protected:
 		}
 	}
 
+public:	
+	UFlowNode_CustomInput* TryFindCustomInputNodeByEventName(const FName& EventName) const;
+	UFlowNode_CustomOutput* TryFindCustomOutputNodeByEventName(const FName& EventName) const;
+
+	TArray<FName> GatherCustomInputNodeEventNames() const;
+	TArray<FName> GatherCustomOutputNodeEventNames() const;
+
+#if WITH_EDITOR
+	const TArray<FName>& GetCustomInputs() const { return CustomInputs; }
+	const TArray<FName>& GetCustomOutputs() const { return CustomOutputs; }
+
+protected:
+	void AddCustomInput(const FName& EventName);
+	void RemoveCustomInput(const FName& EventName);
+
+	void AddCustomOutput(const FName& EventName);
+	void RemoveCustomOutput(const FName& EventName);
+#endif // WITH_EDITOR
+	
 //////////////////////////////////////////////////////////////////////////
 // Instances of the template asset
 
@@ -243,20 +268,20 @@ public:
 	FRefreshDebuggerEvent& OnDebuggerRefresh() { return RefreshDebuggerEvent; }
 	FRefreshDebuggerEvent RefreshDebuggerEvent;
 
-	DECLARE_EVENT_TwoParams(UFlowAsset, FRuntimeMessageEvent, UFlowAsset*, const TSharedRef<FTokenizedMessage>&);
+	DECLARE_EVENT_TwoParams(UFlowAsset, FRuntimeMessageEvent, const UFlowAsset*, const TSharedRef<FTokenizedMessage>&);
 
 	FRuntimeMessageEvent& OnRuntimeMessageAdded() { return RuntimeMessageEvent; }
 	FRuntimeMessageEvent RuntimeMessageEvent;
 
 private:
 	void BroadcastDebuggerRefresh() const;
-	void BroadcastRuntimeMessageAdded(const TSharedRef<FTokenizedMessage>& Message);
+	void BroadcastRuntimeMessageAdded(const TSharedRef<FTokenizedMessage>& Message) const;
 #endif
 
 //////////////////////////////////////////////////////////////////////////
 // Executing asset instance
 
-private:
+protected:
 	UPROPERTY()
 	UFlowAsset* TemplateAsset;
 
@@ -360,7 +385,7 @@ protected:
 	// Expects to be owned (at runtime) by an object with this class (or one of its subclasses)
 	// NOTE - If the class is an AActor, and the flow asset is owned by a component,
 	//        it will consider the component's owner for the AActor
-	UPROPERTY(EditAnywhere, Category = "Flow", meta = (MustImplement = "/Script.Flow.FlowOwnerInterface"))
+	UPROPERTY(EditAnywhere, Category = "Flow", meta = (MustImplement = "/Script/Flow.FlowOwnerInterface"))
 	TSubclassOf<UObject> ExpectedOwnerClass;
 
 //////////////////////////////////////////////////////////////////////////
@@ -373,10 +398,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "SaveGame")
 	void LoadInstance(const FFlowAssetSaveData& AssetRecord);
 
-private:
-	void OnActivationStateLoaded(UFlowNode* Node);
-
 protected:
+	virtual void OnActivationStateLoaded(UFlowNode* Node);
+
 	UFUNCTION(BlueprintNativeEvent, Category = "SaveGame")
 	void OnSave();
 
@@ -392,8 +416,8 @@ public:
 
 #if WITH_EDITOR
 public:
-	void LogError(const FString& MessageToLog, UFlowNode* Node);
-	void LogWarning(const FString& MessageToLog, UFlowNode* Node);
-	void LogNote(const FString& MessageToLog, UFlowNode* Node);
+	void LogError(const FString& MessageToLog, const UFlowNodeBase* Node) const;
+	void LogWarning(const FString& MessageToLog, const UFlowNodeBase* Node) const;
+	void LogNote(const FString& MessageToLog, const UFlowNodeBase* Node) const;
 #endif
 };
